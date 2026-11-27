@@ -1834,7 +1834,7 @@
             removeMaterialAttachment();
         };
 
-        // Generator AI Guru
+        // Generator Materi AI Guru
         window.generateAIMaterial = async function() {
             if (!appState.currentTeacher) return;
             const subject = document.getElementById('ai-subject').value;
@@ -1867,7 +1867,7 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
 
                 if (appState.groqApiKey) {
                     label.textContent = 'Groq Llama AI';
-                    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    const res = await fetchWithRetry('https://api.groq.com/openai/v1/chat/completions', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1883,19 +1883,21 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
                             max_tokens: 2048
                         })
                     });
+                    if (!res.ok) throw new Error('Groq API error');
                     const data = await res.json();
                     generatedText = data?.choices?.[0]?.message?.content || '';
                 } else {
                     label.textContent = 'Gemini AI';
                     const apiKey = "";
                     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-                    const res = await fetch(apiUrl, {
+                    const res = await fetchWithRetry(apiUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: prompt }] }]
                         })
                     });
+                    if (!res.ok) throw new Error('Gemini API error');
                     const data = await res.json();
                     generatedText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 }
@@ -1951,6 +1953,7 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
             };
 
             appState.materials.unshift(newMat);
+            saveLocalCache();
             if (appState.db && appState.user) {
                 try {
                     const cloudMat = { ...newMat };
@@ -1962,11 +1965,154 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
             }
 
             clearMaterialEditor();
-            renderTeacherDashboard();
-            showToast(`Materi diterbitkan khusus untuk ${appState.currentTeacher.room}!`, '🚀');
+            renderTeacherLists();
+            showToast(`Materi berhasil diterbitkan ke siswa ${appState.currentTeacher.room}!`, '🚀');
         };
 
-        // Manajemen Buat & Edit Tugas / Soal Guru (Langsung Sinkron ke Laman Siswa)
+        // Manajemen Buat & Edit Tugas / Soal (Langsung Sinkron ke Laman Siswa)
+        async function fetchWithRetry(url, options, maxRetries = 3) {
+            let delay = 1000;
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    const res = await fetch(url, options);
+                    if (res.ok) return res;
+                    if (res.status === 429 || res.status >= 500) {
+                        if (attempt < maxRetries) {
+                            await new Promise(r => setTimeout(r, delay));
+                            delay *= 2;
+                            continue;
+                        }
+                    }
+                    return res;
+                } catch (err) {
+                    if (attempt < maxRetries) {
+                        await new Promise(r => setTimeout(r, delay));
+                        delay *= 2;
+                        continue;
+                    }
+                    throw err;
+                }
+            }
+        }
+
+        function buildSmartFallbackQuestions(subject, topic, qType, countNum) {
+            const topicLower = topic.toLowerCase();
+            const curatedBanks = [
+                {
+                    keywords: ['pernapasan', 'paru', 'oksigen', 'bernapas'],
+                    items: [
+                        { q: 'Organ utama pada manusia yang berfungsi sebagai tempat pertukaran oksigen dan karbon dioksida adalah...', opts: ['Paru-paru', 'Jantung', 'Lambung', 'Ginjal'], short: 'Sebutkan nama organ utama tempat pertukaran oksigen di dalam dada manusia!' },
+                        { q: 'Gas yang sangat dibutuhkan oleh tubuh manusia saat menghirup udara adalah...', opts: ['Oksigen', 'Karbon dioksida', 'Nitrogen', 'Uap air'], short: 'Gas apa yang dihirup manusia saat bernapas untuk menghasilkan energi?' },
+                        { q: 'Saluran pernapasan yang menghubungkan tenggorokan (trakea) menuju paru-paru kanan dan kiri disebut...', opts: ['Bronkus', 'Kerongkongan', 'Alveolus', 'Hidung'], short: 'Apa nama cabang tenggorokan yang menuju paru-paru kanan dan kiri?' },
+                        { q: 'Di dalam rongga hidung terdapat rambut-rambut halus dan selaput lendir yang berfungsi untuk...', opts: ['Menyaring debu dan kotoran yang masuk bersama udara', 'Mencerna makanan menjadi halus', 'Memompa darah ke seluruh tubuh', 'Menghasilkan suara merdu'], short: 'Jelaskan fungsi rambut-rambut halus yang ada di dalam rongga hidung!' },
+                        { q: 'Gelembung-gelembung udara sangat kecil di ujung paru-paru tempat terjadinya pertukaran gas disebut...', opts: ['Alveolus', 'Faring', 'Laring', 'Diafragma'], short: 'Apa nama gelembung halus di dalam paru-paru tempat pertukaran oksigen?' },
+                        { q: 'Otot sekat yang membatasi rongga dada dan rongga perut serta membantu proses pernapasan perut adalah...', opts: ['Diafragma', 'Otot jantung', 'Otot bisep', 'Tulang rusuk'], short: 'Sebutkan nama otot sekat antara rongga dada dan rongga perut!' },
+                        { q: 'Gas sisa pernapasan yang dikeluarkan oleh tubuh saat kita mengembuskan napas adalah...', opts: ['Karbon dioksida dan uap air', 'Oksigen murni', 'Gas helium', 'Asap kendaraan'], short: 'Gas apa yang diembuskan keluar dari paru-paru saat kita membuang napas?' },
+                        { q: 'Salah satu kebiasaan baik yang dapat menjaga kesehatan organ pernapasan kita adalah...', opts: ['Rajin berolahraga dan menghirup udara segar di pagi hari', 'Berada di dekat asap rokok setiap hari', 'Jarang membersihkan debu di kamar tidur', 'Membakar sampah plastik di halaman rumah'], short: 'Sebutkan 2 cara sederhana menjaga kesehatan organ pernapasanmu!' },
+                        { q: 'Penyakit pada saluran pernapasan yang menyebabkan penyempitan saluran napas sehingga penderitanya sesak napas disebut...', opts: ['Asma', 'Maag', 'Sariawan', 'Rabun jauh'], short: 'Apa nama gangguan pernapasan yang ditandai dengan sesak napas akibat penyempitan saluran napas?' },
+                        { q: 'Urutan jalannya udara pernapasan dari luar tubuh hingga ke paru-paru yang paling tepat adalah...', opts: ['Hidung → Faring → Laring → Trakea → Bronkus → Paru-paru', 'Hidung → Kerongkongan → Lambung → Paru-paru', 'Mulut → Usus halus → Trakea → Paru-paru', 'Hidung → Bronkus → Trakea → Laring → Paru-paru'], short: 'Tuliskan urutan jalannya udara pernapasan mulai dari hidung hingga sampai di paru-paru!' }
+                    ]
+                },
+                {
+                    keywords: ['pencernaan', 'lambung', 'usus', 'makanan'],
+                    items: [
+                        { q: 'Organ pencernaan yang berfungsi mengunyah makanan dengan bantuan gigi dan lidah adalah...', opts: ['Mulut', 'Kerongkongan', 'Lambung', 'Usus besar'], short: 'Di organ manakah makanan pertama kali dikunyah dan dilumatkan?' },
+                        { q: 'Saluran yang menghubungkan rongga mulut dengan lambung dan melakukan gerak peristaltik adalah...', opts: ['Kerongkongan', 'Tenggorokan', 'Usus halus', 'Anus'], short: 'Apa nama saluran penghubung antara mulut dan lambung?' },
+                        { q: 'Penyerapan sari-sari makanan ke dalam aliran darah paling banyak terjadi di dalam...', opts: ['Usus halus', 'Kerongkongan', 'Rongga mulut', 'Usus buntu'], short: 'Di bagian organ pencernaan manakah sari-sari makanan diserap oleh tubuh?' },
+                        { q: 'Organ pencernaan yang menghasilkan asam lambung (HCl) untuk membunuh kuman penyakit yang terbawa makanan adalah...', opts: ['Lambung', 'Usus besar', 'Hati', 'Pankreas'], short: 'Organ pencernaan manakah yang memiliki asam klorida untuk membunuh kuman?' },
+                        { q: 'Fungsi utama usus besar dalam sistem pencernaan manusia adalah...', opts: ['Menyerap kembali air dan membentuk sisa makanan menjadi feses', 'Menghancurkan makanan dengan gigi', 'Memompa darah ke otak', 'Menyaring udara pernapasan'], short: 'Jelaskan fungsi utama usus besar dalam proses pencernaan!' }
+                    ]
+                },
+                {
+                    keywords: ['pecahan', 'matematika', 'pembilang', 'penyebut'],
+                    items: [
+                        { q: 'Sebuah melon dipotong menjadi 8 bagian sama besar. Jika Rani memakan 3 bagian, nilai pecahan melon yang dimakan Rani adalah...', opts: ['3/8', '8/3', '3/5', '5/8'], short: 'Sebuah kue dipotong menjadi 8 bagian sama besar dan dimakan 3 bagian. Tuliskan bentuk pecahannya!' },
+                        { q: 'Pecahan yang senilai dengan 1/2 adalah...', opts: ['2/4', '1/3', '3/4', '2/5'], short: 'Tuliskan dua contoh pecahan yang senilai dengan 1/2!' },
+                        { q: 'Pada pecahan 3/5, angka 3 disebut sebagai...', opts: ['Pembilang', 'Penyebut', 'Hasil bagi', 'Bilangan bulat'], short: 'Pada pecahan 3/5, disebut apakah angka 3 dan angka 5?' },
+                        { q: 'Hasil penjumlahan dari 2/7 + 3/7 adalah...', opts: ['5/7', '5/14', '6/7', '1/7'], short: 'Hitunglah hasil penjumlahan pecahan 2/7 + 3/7!' },
+                        { q: 'Tanda perbandingan yang tepat untuk mengisi titik-titik pada 3/4 ... 1/4 adalah...', opts: ['> (lebih besar dari)', '< (lebih kecil dari)', '= (sama dengan)', '+ (ditambah)'], short: 'Bandingkan pecahan 3/4 dan 1/4, manakah yang lebih besar?' }
+                    ]
+                },
+                {
+                    keywords: ['komering', 'rumah ulu', 'kajang', 'sumatera selatan'],
+                    items: [
+                        { q: 'Rumah adat tradisional masyarakat Komering yang berbentuk rumah panggung dari kayu pilihan disebut...', opts: ['Rumah Ulu', 'Rumah Limas', 'Rumah Gadang', 'Rumah Honai'], short: 'Apa nama rumah panggung tradisional khas masyarakat Komering?' },
+                        { q: 'Alat transportasi air tradisional masyarakat Komering yang beratap anyaman bambu di Sungai Komering adalah...', opts: ['Perahu Kajang', 'Kapal Pinisi', 'Perahu Jukung Bali', 'Sampan Kayu'], short: 'Sebutkan nama perahu tradisional beratap anyaman bambu dari daerah Komering!' },
+                        { q: 'Alasan utama Rumah Ulu Komering dibangun berbentuk panggung dengan tiang tinggi adalah...', opts: ['Melindungi penghuni dari banjir luapan sungai dan binatang buas', 'Agar mudah dipindahkan ke atas bukit', 'Karena tidak ada tanah datar sama sekali', 'Untuk tempat parkir kendaraan'], short: 'Mengapa Rumah Ulu Komering dibangun tinggi berbentuk rumah panggung?' },
+                        { q: 'Sikap yang harus kita tunjukkan terhadap warisan budaya daerah Komering adalah...', opts: ['Bangga, mempelajari, dan ikut melestarikannya', 'Melupakannya karena dianggap kuno', 'Malu menggunakan bahasa daerah sendiri', 'Membiarkannya rusak tanpa dirawat'], short: 'Bagaimana cara siswa SD ikut melestarikan budaya daerah Komering?' }
+                    ]
+                }
+            ];
+
+            const matchedBank = curatedBanks.find(b => b.keywords.some(k => topicLower.includes(k)));
+            const genericTemplates = [
+                {
+                    q: `Pengertian utama dari "${topic}" dalam mata pelajaran ${subject} adalah...`,
+                    opts: [
+                        `Konsep penting dalam ${subject} yang mempelajari cara kerja dan manfaat ${topic}`,
+                        `Kegiatan bermain tanpa aturan di luar jam pelajaran`,
+                        `Benda mati yang tidak pernah ditemukan di lingkungan sekitar`,
+                        `Aturan lalu lintas yang hanya berlaku di jalan tol`
+                    ],
+                    short: `Jelaskan dengan bahasamu sendiri apa yang dimaksud dengan ${topic}!`
+                },
+                {
+                    q: `Salah satu contoh penerapan atau peristiwa yang berkaitan langsung dengan ${topic} di kehidupan sehari-hari adalah...`,
+                    opts: [
+                        `Mengamati dan mempraktikkan prinsip ${topic} di rumah maupun di sekolah`,
+                        `Membiarkan lingkungan sekitar kotor dan tidak terawat`,
+                        `Mengabaikan petunjuk keselamatan saat melakukan kegiatan`,
+                        `Tidak pernah bekerja sama dengan teman kelompok`
+                    ],
+                    short: `Sebutkan 2 contoh nyata yang berkaitan dengan ${topic} di lingkungan sekitarmu!`
+                },
+                {
+                    q: `Manfaat utama mempelajari materi "${topic}" bagi siswa Sekolah Dasar adalah...`,
+                    opts: [
+                        `Menambah pengetahuan dan membantu memecahkan masalah sehari-hari dengan tepat`,
+                        `Membuat kita malas membaca buku pelajaran`,
+                        `Mengurangi rasa ingin tahu terhadap alam sekitar`,
+                        `Menghindari tugas kelompok bersama teman`
+                    ],
+                    short: `Mengapa kita perlu mempelajari materi tentang ${topic} sejak di Sekolah Dasar?`
+                },
+                {
+                    q: `Ketika melakukan pengamatan atau latihan tentang ${topic}, sikap ilmiah yang harus dimiliki siswa adalah...`,
+                    opts: [
+                        `Teliti, jujur mencatat hasil, dan berani bertanya kepada guru`,
+                        `Tergesa-gesa tanpa membaca petunjuk soal`,
+                        `Menyalin jawaban teman tanpa memahami isinya`,
+                        `Menyerah sebelum mencoba mengerjakan`
+                    ],
+                    short: `Sikap baik apa saja yang perlu diterapkan saat belajar tentang ${topic}?`
+                },
+                {
+                    q: `Langkah pertama yang paling tepat untuk memahami konsep ${topic} secara mendalam adalah...`,
+                    opts: [
+                        `Membaca materi dengan saksama lalu menghubungkannya dengan contoh nyata`,
+                        `Langsung menutup buku sebelum pelajaran dimulai`,
+                        `Hanya melihat gambar sampul tanpa membaca isinya`,
+                        `Menunggu jawaban dari orang lain tanpa berusaha`
+                    ],
+                    short: `Tuliskan kesimpulan singkat yang sudah kamu pahami mengenai ${topic}!`
+                }
+            ];
+
+            const sourceItems = matchedBank ? [...matchedBank.items, ...genericTemplates] : genericTemplates;
+            let result = `Petunjuk: Kerjakan ${countNum} soal tentang "${topic}" berikut dengan teliti!\n\n`;
+
+            for (let i = 0; i < countNum; i++) {
+                const item = sourceItems[i % sourceItems.length];
+                const isChoice = qType.includes('Pilihan Ganda') || (qType.includes('Campuran') && i % 2 === 0);
+                if (isChoice) {
+                    result += `${i + 1}. ${item.q}\nA. ${item.opts[0]}\nB. ${item.opts[1]}\nC. ${item.opts[2]}\nD. ${item.opts[3]}\n\n`;
+                } else {
+                    result += `${i + 1}. ${item.short}\n\n`;
+                }
+            }
+            return result.trim();
+        }
+
         window.generateAITaskQuestions = async function() {
             if (!appState.currentTeacher) return;
             const subject = document.getElementById('task-subject').value;
@@ -1987,7 +2133,8 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
             btn.disabled = true;
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI Sedang Menyusun Soal...';
 
-            const prompt = `Buatkan tepat ${qCount} soal latihan untuk siswa ${grade} pada mata pelajaran ${subject} dengan topik "${topic}" dan tipe soal "${qType}".
+            const prompt = `Buatkan tepat ${qCount} soal latihan yang BERBEDA-BEDA, SPESIFIK, dan BERMUTU TINGGI untuk siswa ${grade} pada mata pelajaran ${subject} dengan topik "${topic}" dan tipe soal "${qType}".
+Setiap nomor soal WAJIB membahas sub-konsep, fakta, atau studi kasus yang berbeda tentang "${topic}" (dilarang keras mengulang kalimat pertanyaan maupun opsi jawaban antar nomor).
 Gunakan bahasa Indonesia yang jelas, santun, dan sesuai tingkat pemahaman anak ${grade}.
 WAJIB ikuti format persis seperti di bawah ini tanpa pembuka/penutup tambahan dan TANPA kunci jawaban:
 JUDUL: [Judul Singkat Tugas]
@@ -2003,7 +2150,7 @@ D. [Opsi D]
                 let generatedText = '';
 
                 if (appState.groqApiKey) {
-                    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    const res = await fetchWithRetry('https://api.groq.com/openai/v1/chat/completions', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -2012,11 +2159,11 @@ D. [Opsi D]
                         body: JSON.stringify({
                             model: 'llama-3.3-70b-versatile',
                             messages: [
-                                { role: 'system', content: 'Kamu adalah guru SD berpengalaman di Indonesia yang membuat soal evaluasi berkualitas, jelas, terstruktur rapi, dan ramah anak.' },
+                                { role: 'system', content: 'Kamu adalah guru SD berpengalaman di Indonesia yang membuat soal evaluasi berkualitas, faktual, beragam antar nomor, dan ramah anak.' },
                                 { role: 'user', content: prompt }
                             ],
-                            temperature: 0.65,
-                            max_tokens: 2048
+                            temperature: 0.7,
+                            max_tokens: 2500
                         })
                     });
                     if (!res.ok) throw new Error('Groq API error');
@@ -2025,11 +2172,14 @@ D. [Opsi D]
                 } else {
                     const apiKey = "";
                     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-                    const res = await fetch(apiUrl, {
+                    const res = await fetchWithRetry(apiUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            contents: [{ parts: [{ text: prompt }] }]
+                            contents: [{ parts: [{ text: prompt }] }],
+                            systemInstruction: {
+                                parts: [{ text: 'Kamu adalah guru SD ahli pembuat soal evaluasi. Pastikan setiap soal unik, faktual, sesuai kurikulum SD di Indonesia, dan tidak berulang.' }]
+                            }
                         })
                     });
                     if (!res.ok) throw new Error('Gemini API unavailable');
@@ -2069,19 +2219,8 @@ D. [Opsi D]
                     document.getElementById('task-title').value = `Latihan ${subject}: ${topic}`;
                 }
                 const countNum = parseInt(qCount, 10) || 5;
-                let fallbackQuestions = `Petunjuk: Kerjakan ${countNum} soal tentang "${topic}" berikut dengan teliti!\n\n`;
-                for (let i = 1; i <= countNum; i++) {
-                    const isChoice = qType.includes('Pilihan Ganda') || (qType.includes('Campuran') && i % 2 === 1);
-                    if (isChoice) {
-                        fallbackQuestions += `${i}. Perhatikan materi tentang ${topic} pada pelajaran ${subject}. Pernyataan yang paling tepat mengenai ${topic} (bagian ke-${i}) adalah...\nA. Berkaitan langsung dan bermanfaat dalam kehidupan sehari-hari\nB. Tidak memiliki hubungan dengan lingkungan sekitar\nC. Hanya perlu dihafalkan tanpa dipahami\nD. Tidak termasuk bagian dari pelajaran ${subject}\n\n`;
-                    } else if (qType.includes('Isian')) {
-                        fallbackQuestions += `${i}. Sebutkan satu contoh atau istilah penting yang berkaitan dengan ${topic} pada pelajaran ${subject}!\n\n`;
-                    } else {
-                        fallbackQuestions += `${i}. Jelaskan dengan bahasamu sendiri hal penting yang kamu pahami tentang ${topic} (soal ke-${i})!\n\n`;
-                    }
-                }
-                document.getElementById('task-desc').value = fallbackQuestions.trim();
-                showToast(`${qCount} soal latihan berhasil dibuat! Silakan periksa lalu klik Terbitkan.`, '📝');
+                document.getElementById('task-desc').value = buildSmartFallbackQuestions(subject, topic, qType, countNum);
+                showToast(`${qCount} soal latihan tematik berhasil disusun! Silakan periksa lalu klik Terbitkan.`, '📝');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Buat Soal Otomatis dengan AI';
