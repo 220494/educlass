@@ -685,6 +685,31 @@
         };
 
         const defaultDeadline = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+        const LOCAL_STORAGE_KEY = 'educlass_sd_local_v1';
+
+        function loadLocalCache() {
+            try {
+                const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function saveLocalCache() {
+            try {
+                const payload = {
+                    teachers: appState.teachers,
+                    materials: appState.materials,
+                    tasks: appState.tasks,
+                    submissions: appState.submissions,
+                    activities: appState.activities
+                };
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
+            } catch (e) {}
+        }
+
+        const cachedData = loadLocalCache();
 
         const appState = {
             role: 'student',
@@ -701,7 +726,7 @@
             user: null,
             unsubscribers: [],
             appId: typeof __app_id !== 'undefined' ? __app_id : 'educlass-sd-app',
-            teachers: [
+            teachers: cachedData?.teachers?.length ? cachedData.teachers : [
                 {
                     id: 'guru-demo-4a',
                     username: 'guru4',
@@ -711,7 +736,7 @@
                     room: 'Kelas 4A'
                 }
             ],
-            materials: [
+            materials: cachedData?.materials?.length ? cachedData.materials : [
                 {
                     id: 'mat-1',
                     teacherId: 'guru-demo-4a',
@@ -743,7 +768,7 @@
                     createdAt: 'Hari ini'
                 }
             ],
-            tasks: [
+            tasks: cachedData?.tasks?.length ? cachedData.tasks : [
                 {
                     id: 'task-1',
                     teacherId: 'guru-demo-4a',
@@ -763,8 +788,8 @@
                     createdAt: Date.now() - 10000
                 }
             ],
-            submissions: [],
-            activities: []
+            submissions: cachedData?.submissions || [],
+            activities: cachedData?.activities || []
         };
 
         function escapeHTML(str) {
@@ -940,7 +965,7 @@
         };
 
         window.handleTeacherLogin = function() {
-            const uname = document.getElementById('login-teacher-username').value.trim().toLowerCase();
+            const uname = document.getElementById('login-teacher-username').value.trim().toLowerCase().replace(/\s+/g, '');
             const pin = document.getElementById('login-teacher-pin').value.trim();
 
             if (!uname || !pin) {
@@ -948,7 +973,7 @@
                 return;
             }
 
-            const found = appState.teachers.find(t => t.username.toLowerCase() === uname && t.pin === pin);
+            const found = appState.teachers.find(t => String(t.username || '').trim().toLowerCase() === uname && String(t.pin || '').trim() === pin);
             if (!found) {
                 showToast('Username atau PIN tidak cocok. Silakan periksa atau buat akun baru!', '🔒');
                 return;
@@ -962,6 +987,51 @@
             closeModal('modal-teacher-auth');
             switchRole('teacher');
             showToast(`Selamat datang, ${found.name} (${found.room})!`, '👩‍🏫');
+        };
+
+        window.handleTeacherRegister = async function() {
+            const name = document.getElementById('reg-teacher-name').value.trim();
+            const grade = document.getElementById('reg-teacher-grade').value;
+            const room = document.getElementById('reg-teacher-room').value.trim();
+            const username = document.getElementById('reg-teacher-username').value.trim().toLowerCase().replace(/\s+/g, '');
+            const pin = document.getElementById('reg-teacher-pin').value.trim();
+
+            if (!name || !room || !username || pin.length < 4) {
+                showToast('Lengkapi semua data akun guru (PIN minimal 4 karakter)!', '⚠️');
+                return;
+            }
+
+            if (appState.teachers.some(t => String(t.username || '').trim().toLowerCase() === username)) {
+                showToast('Username sudah dipakai guru lain, gunakan username lain ya!', '⚠️');
+                return;
+            }
+
+            const newTeacher = {
+                id: 'guru-' + username + '-' + Date.now().toString().slice(-4),
+                username,
+                pin,
+                name,
+                grade,
+                room
+            };
+
+            appState.teachers.push(newTeacher);
+            saveLocalCache();
+
+            if (appState.db && appState.user) {
+                try {
+                    await setDoc(doc(appState.db, 'artifacts', appState.appId, 'public', 'data', 'teachers', newTeacher.id), newTeacher);
+                } catch (e) {}
+            }
+
+            appState.currentTeacher = newTeacher;
+            appState.activeStudentTeacherId = newTeacher.id;
+            document.getElementById('teacher-lock-icon').className = 'fa-solid fa-lock-open text-xs text-emerald-600';
+            document.getElementById('teacher-nav-label').textContent = newTeacher.room;
+            syncClassroomSelectorUI();
+            closeModal('modal-teacher-auth');
+            switchRole('teacher');
+            showToast(`Akun ${newTeacher.room} berhasil dibuat! Username: ${username}`, '🎉');
         };
 
         window.handleTeacherRegister = async function() {
@@ -1933,16 +2003,36 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
                 }
 
                 const unsubTeachers = onSnapshot(collection(db, 'artifacts', appState.appId, 'public', 'data', 'teachers'), (snap) => {
-                    if (!snap.empty) {
-                        const cloudTeachers = snap.docs.map(d => d.data());
-                        const demo = appState.teachers.find(t => t.id === 'guru-demo-4a');
-                        if (demo && !cloudTeachers.some(t => t.id === 'guru-demo-4a')) {
-                            cloudTeachers.unshift(demo);
-                        }
-                        appState.teachers = cloudTeachers;
-                        syncClassroomSelectorUI();
-                        if (appState.role === 'student') renderStudentDashboard();
+                    const cloudTeachers = snap.docs.map(d => d.data());
+                    const mergedMap = new Map();
+                    appState.teachers.forEach(t => mergedMap.set(t.id, t));
+                    cloudTeachers.forEach(t => mergedMap.set(t.id, t));
+
+                    const mergedList = Array.from(mergedMap.values());
+                    if (!mergedList.some(t => t.id === 'guru-demo-4a')) {
+                        mergedList.unshift({
+                            id: 'guru-demo-4a',
+                            username: 'guru4',
+                            pin: '1234',
+                            name: 'Bu Siti Aminah, S.Pd',
+                            grade: 'Kelas 4 SD',
+                            room: 'Kelas 4A'
+                        });
                     }
+                    appState.teachers = mergedList;
+                    saveLocalCache();
+
+                    // Sinkronkan akun lokal yang belum tercatat di cloud
+                    if (appState.db && appState.user) {
+                        mergedList.forEach(t => {
+                            if (t.id !== 'guru-demo-4a' && !cloudTeachers.some(ct => ct.id === t.id)) {
+                                setDoc(doc(db, 'artifacts', appState.appId, 'public', 'data', 'teachers', t.id), t).catch(() => {});
+                            }
+                        });
+                    }
+
+                    syncClassroomSelectorUI();
+                    if (appState.role === 'student') renderStudentDashboard();
                 }, () => {});
 
                 const unsubMaterials = onSnapshot(collection(db, 'artifacts', appState.appId, 'public', 'data', 'materials'), (snap) => {
