@@ -1739,49 +1739,6 @@
             showToast('Hore! Semua jawaban terkirim ke Bapak/Ibu Guru (+3 Bintang) 🌟', '🎉');
         };
 
-        window.submitStudentTask = async function() {
-            const taskId = document.getElementById('submit-task-id').value;
-            const studentName = document.getElementById('submit-student-name').value.trim();
-            const activeTeacher = appState.teachers.find(t => t.id === appState.activeStudentTeacherId);
-            const studentClass = document.getElementById('submit-student-class').value.trim() || (activeTeacher ? activeTeacher.room : 'SD');
-            const answer = document.getElementById('submit-student-answer').value.trim();
-
-            if (!studentName || !answer) {
-                showToast('Isi nama lengkap dan jawabanmu dulu ya!', '⚠️');
-                return;
-            }
-
-            appState.studentProfileName = studentName;
-            document.getElementById('student-profile-name').value = studentName;
-
-            const task = appState.tasks.find(t => t.id === taskId);
-            const newSub = {
-                id: 'sub-' + Date.now(),
-                teacherId: appState.activeStudentTeacherId,
-                taskId,
-                taskTitle: task ? task.title : 'Tugas Siswa',
-                subject: task ? task.subject : 'Umum',
-                studentName,
-                studentClass,
-                answer,
-                score: '',
-                submittedAt: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-            };
-
-            appState.submissions.unshift(newSub);
-            if (appState.db && appState.user) {
-                try {
-                    await setDoc(doc(appState.db, 'artifacts', appState.appId, 'public', 'data', 'submissions', newSub.id), newSub);
-                } catch (e) {}
-            }
-
-            logStudentActivity('Kumpul Tugas', `Mengumpulkan tugas "${newSub.taskTitle}" (${newSub.subject})`);
-            appState.studentStars += 3;
-            document.getElementById('stat-student-stars').textContent = appState.studentStars;
-            closeModal('modal-submit-task');
-            showToast('Hore! Tugas terkirim ke Bapak/Ibu Gurumu (+3 Bintang) 🌟', '🎉');
-        };
-
         // Kuis Kilat Interaktif Siswa
         window.openInteractiveQuizModal = function() {
             appState.currentQuizIdx = 0;
@@ -2030,12 +1987,17 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
             btn.disabled = true;
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI Sedang Menyusun Soal...';
 
-            const prompt = `Buatkan ${qCount} soal latihan siswa ${grade} untuk mata pelajaran ${subject} tentang topik "${topic}" dengan tipe soal "${qType}".
+            const prompt = `Buatkan tepat ${qCount} soal latihan untuk siswa ${grade} pada mata pelajaran ${subject} dengan topik "${topic}" dan tipe soal "${qType}".
 Gunakan bahasa Indonesia yang jelas, santun, dan sesuai tingkat pemahaman anak ${grade}.
-Format penulisan:
-Baris 1: Judul Tugas/Latihan yang singkat dan menarik (tanpa tanda pagar atau bintang).
-Baris 2: Petunjuk singkat pengerjaan untuk siswa (contoh: "Kerjakan soal-soal berikut dengan teliti! Tuliskan nomor dan jawabanmu pada kolom jawaban.").
-Baris 3 dst: Daftar soal bernomor 1 sampai ${qCount}. Jika tipe Pilihan Ganda, sertakan opsi A, B, C, D secara rapi. JANGAN sertakan kunci jawaban di bagian ini agar bisa langsung ditugaskan kepada siswa.`;
+WAJIB ikuti format persis seperti di bawah ini tanpa pembuka/penutup tambahan dan TANPA kunci jawaban:
+JUDUL: [Judul Singkat Tugas]
+PETUNJUK: [1 kalimat petunjuk pengerjaan untuk siswa]
+1. [Pertanyaan nomor 1]
+A. [Opsi A]
+B. [Opsi B]
+C. [Opsi C]
+D. [Opsi D]
+(Catatan: jika tipe soal Isian Singkat atau Uraian, tidak perlu menulis baris A, B, C, D).`;
 
             try {
                 let generatedText = '';
@@ -2050,13 +2012,14 @@ Baris 3 dst: Daftar soal bernomor 1 sampai ${qCount}. Jika tipe Pilihan Ganda, s
                         body: JSON.stringify({
                             model: 'llama-3.3-70b-versatile',
                             messages: [
-                                { role: 'system', content: 'Kamu adalah guru SD berpengalaman di Indonesia yang membuat soal evaluasi berkualitas, jelas, dan ramah anak.' },
+                                { role: 'system', content: 'Kamu adalah guru SD berpengalaman di Indonesia yang membuat soal evaluasi berkualitas, jelas, terstruktur rapi, dan ramah anak.' },
                                 { role: 'user', content: prompt }
                             ],
-                            temperature: 0.7,
-                            max_tokens: 1800
+                            temperature: 0.65,
+                            max_tokens: 2048
                         })
                     });
+                    if (!res.ok) throw new Error('Groq API error');
                     const data = await res.json();
                     generatedText = data?.choices?.[0]?.message?.content || '';
                 } else {
@@ -2069,40 +2032,56 @@ Baris 3 dst: Daftar soal bernomor 1 sampai ${qCount}. Jika tipe Pilihan Ganda, s
                             contents: [{ parts: [{ text: prompt }] }]
                         })
                     });
+                    if (!res.ok) throw new Error('Gemini API unavailable');
                     const data = await res.json();
                     generatedText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 }
 
-                if (!generatedText) {
+                if (!generatedText || !generatedText.trim()) {
                     throw new Error('Fallback soal template');
                 }
 
-                const lines = generatedText.split('\n').filter(l => l.trim());
-                const cleanTitle = lines[0].replace(/^#+\s*|\*\*/g, '').trim();
-                const cleanQuestions = lines.slice(1).join('\n').replace(/\*\*/g, '').trim();
+                const cleanRaw = generatedText.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
+                const rawLines = cleanRaw.split('\n').map(l => l.trim()).filter(Boolean);
+
+                let extractedTitle = '';
+                const bodyLines = [];
+
+                rawLines.forEach((line, idx) => {
+                    if (/^JUDUL\s*:/i.test(line)) {
+                        extractedTitle = line.replace(/^JUDUL\s*:\s*/i, '').trim();
+                    } else if (/^PETUNJUK\s*:/i.test(line)) {
+                        bodyLines.push(line.replace(/^PETUNJUK\s*:\s*/i, 'Petunjuk: ').trim());
+                    } else if (idx === 0 && !/^\d+[\.\)]/.test(line) && !extractedTitle) {
+                        extractedTitle = line;
+                    } else {
+                        bodyLines.push(line);
+                    }
+                });
 
                 if (!titleInput) {
-                    document.getElementById('task-title').value = cleanTitle || `Latihan ${subject}: ${topic}`;
+                    document.getElementById('task-title').value = extractedTitle || `Latihan ${subject}: ${topic}`;
                 }
-                document.getElementById('task-desc').value = cleanQuestions || generatedText;
-                showToast(`${qCount} soal AI berhasil dibuat! Siap diperiksa atau langsung diterbitkan.`, '✨');
+                document.getElementById('task-desc').value = bodyLines.join('\n').trim() || cleanRaw;
+                showToast(`${qCount} soal AI berhasil disusun & siap diterbitkan ke siswa!`, '✨');
             } catch (err) {
                 if (!titleInput) {
                     document.getElementById('task-title').value = `Latihan ${subject}: ${topic}`;
                 }
                 const countNum = parseInt(qCount, 10) || 5;
-                let fallbackQuestions = `Petunjuk: Kerjakan ${countNum} soal tentang "${topic}" berikut dengan teliti! Tuliskan nomor dan jawabanmu pada kotak jawaban di bawah.\n\n`;
+                let fallbackQuestions = `Petunjuk: Kerjakan ${countNum} soal tentang "${topic}" berikut dengan teliti!\n\n`;
                 for (let i = 1; i <= countNum; i++) {
-                    if (qType.includes('Pilihan Ganda')) {
-                        fallbackQuestions += `${i}. Perhatikan penjelasan tentang ${topic} pada pelajaran ${subject}. Pernyataan yang paling tepat mengenai ${topic} adalah...\n   A. Berkaitan langsung dengan kehidupan sehari-hari\n   B. Tidak memiliki manfaat bagi lingkungan\n   C. Hanya dipelajari tanpa dipraktikkan\n   D. Tidak berhubungan dengan pelajaran ${subject}\n\n`;
+                    const isChoice = qType.includes('Pilihan Ganda') || (qType.includes('Campuran') && i % 2 === 1);
+                    if (isChoice) {
+                        fallbackQuestions += `${i}. Perhatikan materi tentang ${topic} pada pelajaran ${subject}. Pernyataan yang paling tepat mengenai ${topic} (bagian ke-${i}) adalah...\nA. Berkaitan langsung dan bermanfaat dalam kehidupan sehari-hari\nB. Tidak memiliki hubungan dengan lingkungan sekitar\nC. Hanya perlu dihafalkan tanpa dipahami\nD. Tidak termasuk bagian dari pelajaran ${subject}\n\n`;
                     } else if (qType.includes('Isian')) {
-                        fallbackQuestions += `${i}. Tuliskan istilah atau bagian penting yang berhubungan dengan ${topic} pada pelajaran ${subject}: _______________\n\n`;
+                        fallbackQuestions += `${i}. Sebutkan satu contoh atau istilah penting yang berkaitan dengan ${topic} pada pelajaran ${subject}!\n\n`;
                     } else {
-                        fallbackQuestions += `${i}. Jelaskan dengan bahasamu sendiri hal penting yang kamu ketahui tentang ${topic} (soal ke-${i})!\n\n`;
+                        fallbackQuestions += `${i}. Jelaskan dengan bahasamu sendiri hal penting yang kamu pahami tentang ${topic} (soal ke-${i})!\n\n`;
                     }
                 }
                 document.getElementById('task-desc').value = fallbackQuestions.trim();
-                showToast('Draft soal berhasil dibuat! Silakan sesuaikan lalu terbitkan ke siswa.', '📝');
+                showToast(`${qCount} soal latihan berhasil dibuat! Silakan periksa lalu klik Terbitkan.`, '📝');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Buat Soal Otomatis dengan AI';
