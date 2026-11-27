@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EduClass - Portal Belajar & Admin Guru</title>
+    <title>EduClass - Portal Belajar & Admin Guru SD</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Font Awesome Icons -->
@@ -618,14 +618,16 @@
                     grade: 'Kelas 4 SD',
                     title: 'Berkenalan dengan Algoritma & Robot Pintar (AI)',
                     content: 'Algoritma adalah urutan langkah yang jelas untuk menyelesaikan tugas. Contohnya saat kamu menggosok gigi: ambil sikat -> beri pasta gigi -> sikat gigi -> berkumur.\n\nKecerdasan Artifisial (AI) membuat komputer bisa belajar mengenali gambar, suara, dan membantu manusia belajar dengan lebih seru!',
+                    attachment: null,
                     createdAt: 'Hari ini'
                 },
                 {
                     id: 'mat-3',
                     subject: 'IPAS',
                     grade: 'Kelas 4 SD',
-                    title: 'Photosintesis: Cara Tumbuhan Memasak Makanannya',
+                    title: 'Fotosintesis: Cara Tumbuhan Memasak Makanannya',
                     content: 'Tumbuhan hijau dapat membuat makanannya sendiri melalui proses fotosintesis dengan bantuan cahaya matahari, air dari akar, dan karbon dioksida dari udara.',
+                    attachment: null,
                     createdAt: 'Hari ini'
                 }
             ],
@@ -1507,7 +1509,17 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
             }
         }
 
-        // Inisialisasi Awal
+        // Konfigurasi Firebase Proyek EduClass
+        const DEFAULT_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyAMOCfpaa2vVlGlY7MzvW8ZBc8WnuGPpGw",
+            authDomain: "educlass-98af0.firebaseapp.com",
+            projectId: "educlass-98af0",
+            storageBucket: "educlass-98af0.firebasestorage.app",
+            messagingSenderId: "659718197602",
+            appId: "1:659718197602:web:dba22e7e9d076199b45c3b",
+            measurementId: "G-W7Q23CM49K"
+        };
+
         window.addEventListener('DOMContentLoaded', () => {
             document.getElementById('task-deadline').value = defaultDeadline;
             renderStudentDashboard();
@@ -1515,7 +1527,11 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
             if (typeof __firebase_config !== 'undefined' && __firebase_config) {
                 try {
                     initCloudSync(JSON.parse(__firebase_config));
-                } catch (e) {}
+                } catch (e) {
+                    initCloudSync(DEFAULT_FIREBASE_CONFIG);
+                }
+            } else {
+                initCloudSync(DEFAULT_FIREBASE_CONFIG);
             }
         });
     </script>
