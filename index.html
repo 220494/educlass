@@ -1436,6 +1436,10 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
         // Pengaturan Groq AI & Cloud Database
         window.openSettingsModal = function() {
             document.getElementById('input-groq-key').value = appState.groqApiKey;
+            const savedCfg = localStorage.getItem('educlass_firebase_cfg');
+            if (savedCfg) {
+                document.getElementById('input-firebase-json').value = savedCfg;
+            }
             openModal('modal-settings');
         };
 
@@ -1445,12 +1449,16 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
 
             appState.groqApiKey = groqKey;
             if (groqKey) {
+                localStorage.setItem('educlass_groq_key', groqKey);
                 document.getElementById('ai-engine-label').textContent = 'Groq AI Aktif';
+            } else {
+                localStorage.removeItem('educlass_groq_key');
             }
 
             if (fbRaw) {
                 try {
                     const cfg = JSON.parse(fbRaw);
+                    localStorage.setItem('educlass_firebase_cfg', JSON.stringify(cfg));
                     await initCloudSync(cfg);
                 } catch (e) {
                     showToast('Format JSON konfigurasi cloud tidak valid!', '⚠️');
@@ -1522,16 +1530,25 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
 
         window.addEventListener('DOMContentLoaded', () => {
             document.getElementById('task-deadline').value = defaultDeadline;
+
+            // Muat Groq API Key & Konfigurasi Firebase dari penyimpanan lokal browser (tidak tertanam di kode GitHub)
+            const savedGroq = localStorage.getItem('educlass_groq_key');
+            if (savedGroq) {
+                appState.groqApiKey = savedGroq;
+                document.getElementById('ai-engine-label').textContent = 'Groq AI Aktif';
+            }
+
             renderStudentDashboard();
 
+            const savedFirebase = localStorage.getItem('educlass_firebase_cfg');
             if (typeof __firebase_config !== 'undefined' && __firebase_config) {
                 try {
                     initCloudSync(JSON.parse(__firebase_config));
-                } catch (e) {
-                    initCloudSync(DEFAULT_FIREBASE_CONFIG);
-                }
-            } else {
-                initCloudSync(DEFAULT_FIREBASE_CONFIG);
+                } catch (e) {}
+            } else if (savedFirebase) {
+                try {
+                    initCloudSync(JSON.parse(savedFirebase));
+                } catch (e) {}
             }
         });
     </script>
