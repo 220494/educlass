@@ -137,15 +137,28 @@
 
             <!-- Bar Identitas Siswa -->
             <div class="bg-white rounded-[2rem] p-4 sm:p-5 border-2 border-emerald-200 shadow-sm">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <label for="student-profile-name" class="text-xs sm:text-sm font-extrabold text-emerald-900 flex items-center gap-2 shrink-0">
-                        <span class="text-lg">🪪</span> Nama Panggilanmu (Agar Kehadiran & Aktivitas Tercatat):
-                    </label>
-                    <div class="flex gap-2 flex-1 max-w-xl">
-                        <input id="student-profile-name" type="text" placeholder="Ketik namamu di sini, misal: Siti Aisyah" class="flex-1 rounded-xl border-2 border-emerald-200 px-3.5 py-2 text-sm font-bold focus:border-emerald-500 focus:outline-none">
-                        <button type="button" onclick="saveStudentQuickProfile()" class="kid-btn px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold whitespace-nowrap">
-                            Hadir ✅
-                        </button>
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                    <div class="md:col-span-4">
+                        <label for="student-class-code-input" class="block text-xs font-extrabold text-indigo-900 mb-1">
+                            🔑 Kode Kelas dari Guru
+                        </label>
+                        <div class="flex gap-1.5">
+                            <input id="student-class-code-input" type="text" placeholder="Masukkan kode kelas..." class="w-full rounded-xl border-2 border-indigo-200 px-3 py-2 text-xs sm:text-sm font-mono font-bold text-indigo-900 focus:border-indigo-500 focus:outline-none">
+                            <button type="button" onclick="applyStudentClassCode()" class="kid-btn px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold whitespace-nowrap">
+                                Gabung
+                            </button>
+                        </div>
+                    </div>
+                    <div class="md:col-span-8">
+                        <label for="student-profile-name" class="block text-xs font-extrabold text-emerald-900 mb-1">
+                            🪪 Nama Panggilanmu (Agar Kehadiran & Aktivitas Tercatat)
+                        </label>
+                        <div class="flex gap-2">
+                            <input id="student-profile-name" type="text" placeholder="Ketik namamu di sini, misal: Siti Aisyah" class="flex-1 rounded-xl border-2 border-emerald-200 px-3.5 py-2 text-sm font-bold focus:border-emerald-500 focus:outline-none">
+                            <button type="button" onclick="saveStudentQuickProfile()" class="kid-btn px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold whitespace-nowrap">
+                                Hadir ✅
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -211,6 +224,11 @@
                         <span id="teacher-profile-badge" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-100 text-indigo-800 text-xs font-extrabold">
                             Kelas 4 SD • Kelas 4A
                         </span>
+                        <button type="button" onclick="copyClassCodeOnly()" title="Klik untuk menyalin Kode Kelas" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-mono font-extrabold transition cursor-pointer">
+                            <i class="fa-solid fa-key text-amber-600"></i>
+                            <span>Kode Kelas: <strong id="teacher-class-code-display">guru-demo-4a</strong></span>
+                            <i class="fa-regular fa-copy text-[11px] ml-0.5"></i>
+                        </button>
                         <span id="cloud-status-badge" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">
                             <i class="fa-solid fa-hard-drive"></i> Mode Sesi Lokal
                         </span>
@@ -845,18 +863,33 @@
 
         // Pemilihan Kelas Guru oleh Siswa
         function syncClassroomSelectorUI() {
-            if (appState.teachers.length === 0) return;
-
-            if (!appState.teachers.some(t => t.id === appState.activeStudentTeacherId)) {
+            if (appState.teachers.length > 0 && !appState.teachers.some(t => t.id === appState.activeStudentTeacherId)) {
                 appState.activeStudentTeacherId = appState.teachers[0].id;
+            }
+
+            const codeInput = document.getElementById('student-class-code-input');
+            if (codeInput) {
+                codeInput.value = appState.activeStudentTeacherId;
             }
 
             const activeTeacher = appState.teachers.find(t => t.id === appState.activeStudentTeacherId);
             const classInput = document.getElementById('submit-student-class');
-            if (classInput && activeTeacher) {
-                classInput.value = activeTeacher.room;
+            if (classInput) {
+                classInput.value = activeTeacher ? activeTeacher.room : appState.activeStudentTeacherId;
             }
         }
+
+        window.applyStudentClassCode = function() {
+            const codeVal = document.getElementById('student-class-code-input')?.value.trim();
+            if (!codeVal) {
+                showToast('Masukkan kode kelas dari Bapak/Ibu Guru terlebih dahulu!', '⚠️');
+                return;
+            }
+            appState.activeStudentTeacherId = codeVal;
+            syncClassroomSelectorUI();
+            renderStudentDashboard();
+            showToast(`Terhubung ke Kode Kelas: ${codeVal}`, '🔑');
+        };
 
         // Navigasi Peran Siswa & Multi-Akun Guru
         window.switchRole = function(role) {
@@ -1001,6 +1034,22 @@
             document.body.removeChild(tempInput);
         };
 
+        window.copyClassCodeOnly = function() {
+            if (!appState.currentTeacher) return;
+            const code = appState.currentTeacher.id;
+            const tempInput = document.createElement('input');
+            tempInput.value = code;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            try {
+                document.execCommand('copy');
+                showToast(`Kode Kelas "${code}" berhasil disalin!`, '📋');
+            } catch (e) {
+                showToast(`Kode Kelas Anda: ${code}`, '🔑');
+            }
+            document.body.removeChild(tempInput);
+        };
+
         window.openChangePinModal = function() {
             document.getElementById('new-teacher-pin').value = '';
             openModal('modal-change-pin');
@@ -1041,6 +1090,10 @@
             const t = appState.currentTeacher;
             if (!t) return;
             document.getElementById('teacher-profile-badge').textContent = `${t.grade} • ${t.room}`;
+            const codeDisplay = document.getElementById('teacher-class-code-display');
+            if (codeDisplay) {
+                codeDisplay.textContent = t.id;
+            }
             document.getElementById('teacher-dashboard-title').textContent = `Ruang Guru: ${t.name}`;
             document.getElementById('teacher-dashboard-subtitle').textContent = `Seluruh materi, tugas/soal, nilai, dan aktivitas di bawah ini khusus milik ${t.room} (${t.grade}).`;
             document.getElementById('ai-locked-grade-display').value = `${t.grade} (${t.room})`;
