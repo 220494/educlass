@@ -385,9 +385,35 @@
                         <label class="block text-xs font-extrabold text-slate-700 mb-1">Judul Tugas / Soal</label>
                         <input id="task-title" type="text" placeholder="Contoh: Latihan Soal Pecahan / Membuat Algoritma" class="w-full rounded-xl border-2 border-slate-200 px-3.5 py-2.5 text-sm font-semibold">
                     </div>
+                    <!-- Asisten AI Pembuat Soal Otomatis -->
+                    <div class="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-50 via-purple-50 to-amber-50 border-2 border-indigo-200 space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold text-indigo-900 flex items-center gap-1.5">
+                                <i class="fa-solid fa-robot text-indigo-600"></i> Asisten AI Pembuat Soal
+                            </span>
+                            <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Otomatis ke Form</span>
+                        </div>
+                        <input id="ai-task-topic" type="text" placeholder="Topik soal (misal: Pecahan Senilai, Rumah Ulu...)" class="w-full rounded-xl border-2 border-indigo-200 bg-white px-3 py-2 text-xs font-semibold focus:border-indigo-500 focus:outline-none">
+                        <div class="grid grid-cols-2 gap-2">
+                            <select id="ai-task-type" class="rounded-xl border-2 border-indigo-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 focus:border-indigo-500 focus:outline-none">
+                                <option value="Pilihan Ganda (A, B, C, D)">Pilihan Ganda</option>
+                                <option value="Isian Singkat">Isian Singkat</option>
+                                <option value="Uraian / Esai">Uraian / Esai</option>
+                                <option value="Campuran (Pilihan Ganda & Uraian)">Campuran</option>
+                            </select>
+                            <select id="ai-task-count" class="rounded-xl border-2 border-indigo-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 focus:border-indigo-500 focus:outline-none">
+                                <option value="3">3 Soal</option>
+                                <option value="5" selected>5 Soal</option>
+                                <option value="10">10 Soal</option>
+                            </select>
+                        </div>
+                        <button id="btn-generate-task-ai" type="button" onclick="generateAITaskQuestions()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-extrabold text-xs shadow-sm transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Buat Soal Otomatis dengan AI
+                        </button>
+                    </div>
                     <div>
                         <label class="block text-xs font-extrabold text-slate-700 mb-1">Isi Soal / Instruksi Tugas untuk Siswa</label>
-                        <textarea id="task-desc" rows="5" placeholder="Tuliskan daftar soal atau petunjuk pengerjaan tugas dengan jelas..." class="w-full rounded-xl border-2 border-slate-200 p-3 text-sm"></textarea>
+                        <textarea id="task-desc" rows="6" placeholder="Tuliskan daftar soal atau petunjuk pengerjaan tugas dengan jelas..." class="w-full rounded-xl border-2 border-slate-200 p-3 text-sm"></textarea>
                     </div>
                     <div>
                         <label class="block text-xs font-extrabold text-slate-700 mb-1">Batas Waktu Pengumpulan (Deadline)</label>
@@ -1664,6 +1690,105 @@ Bagian 5 - Ayo Berlatih & Refleksi: 3 pertanyaan diskusi/latihan ringan untuk me
         };
 
         // Manajemen Buat & Edit Tugas / Soal Guru (Langsung Sinkron ke Laman Siswa)
+        window.generateAITaskQuestions = async function() {
+            if (!appState.currentTeacher) return;
+            const subject = document.getElementById('task-subject').value;
+            const grade = appState.currentTeacher.grade;
+            const topicInput = document.getElementById('ai-task-topic').value.trim();
+            const titleInput = document.getElementById('task-title').value.trim();
+            const topic = topicInput || titleInput;
+            const qType = document.getElementById('ai-task-type').value;
+            const qCount = document.getElementById('ai-task-count').value;
+
+            if (!topic) {
+                showToast('Ketik topik soal atau judul tugas terlebih dahulu!', '⚠️');
+                document.getElementById('ai-task-topic').focus();
+                return;
+            }
+
+            const btn = document.getElementById('btn-generate-task-ai');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI Sedang Menyusun Soal...';
+
+            const prompt = `Buatkan ${qCount} soal latihan siswa ${grade} untuk mata pelajaran ${subject} tentang topik "${topic}" dengan tipe soal "${qType}".
+Gunakan bahasa Indonesia yang jelas, santun, dan sesuai tingkat pemahaman anak ${grade}.
+Format penulisan:
+Baris 1: Judul Tugas/Latihan yang singkat dan menarik (tanpa tanda pagar atau bintang).
+Baris 2: Petunjuk singkat pengerjaan untuk siswa (contoh: "Kerjakan soal-soal berikut dengan teliti! Tuliskan nomor dan jawabanmu pada kolom jawaban.").
+Baris 3 dst: Daftar soal bernomor 1 sampai ${qCount}. Jika tipe Pilihan Ganda, sertakan opsi A, B, C, D secara rapi. JANGAN sertakan kunci jawaban di bagian ini agar bisa langsung ditugaskan kepada siswa.`;
+
+            try {
+                let generatedText = '';
+
+                if (appState.groqApiKey) {
+                    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${appState.groqApiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: 'llama-3.3-70b-versatile',
+                            messages: [
+                                { role: 'system', content: 'Kamu adalah guru SD berpengalaman di Indonesia yang membuat soal evaluasi berkualitas, jelas, dan ramah anak.' },
+                                { role: 'user', content: prompt }
+                            ],
+                            temperature: 0.7,
+                            max_tokens: 1800
+                        })
+                    });
+                    const data = await res.json();
+                    generatedText = data?.choices?.[0]?.message?.content || '';
+                } else {
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                    const res = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }]
+                        })
+                    });
+                    const data = await res.json();
+                    generatedText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                }
+
+                if (!generatedText) {
+                    throw new Error('Fallback soal template');
+                }
+
+                const lines = generatedText.split('\n').filter(l => l.trim());
+                const cleanTitle = lines[0].replace(/^#+\s*|\*\*/g, '').trim();
+                const cleanQuestions = lines.slice(1).join('\n').replace(/\*\*/g, '').trim();
+
+                if (!titleInput) {
+                    document.getElementById('task-title').value = cleanTitle || `Latihan ${subject}: ${topic}`;
+                }
+                document.getElementById('task-desc').value = cleanQuestions || generatedText;
+                showToast(`${qCount} soal AI berhasil dibuat! Siap diperiksa atau langsung diterbitkan.`, '✨');
+            } catch (err) {
+                if (!titleInput) {
+                    document.getElementById('task-title').value = `Latihan ${subject}: ${topic}`;
+                }
+                const countNum = parseInt(qCount, 10) || 5;
+                let fallbackQuestions = `Petunjuk: Kerjakan ${countNum} soal tentang "${topic}" berikut dengan teliti! Tuliskan nomor dan jawabanmu pada kotak jawaban di bawah.\n\n`;
+                for (let i = 1; i <= countNum; i++) {
+                    if (qType.includes('Pilihan Ganda')) {
+                        fallbackQuestions += `${i}. Perhatikan penjelasan tentang ${topic} pada pelajaran ${subject}. Pernyataan yang paling tepat mengenai ${topic} adalah...\n   A. Berkaitan langsung dengan kehidupan sehari-hari\n   B. Tidak memiliki manfaat bagi lingkungan\n   C. Hanya dipelajari tanpa dipraktikkan\n   D. Tidak berhubungan dengan pelajaran ${subject}\n\n`;
+                    } else if (qType.includes('Isian')) {
+                        fallbackQuestions += `${i}. Tuliskan istilah atau bagian penting yang berhubungan dengan ${topic} pada pelajaran ${subject}: _______________\n\n`;
+                    } else {
+                        fallbackQuestions += `${i}. Jelaskan dengan bahasamu sendiri hal penting yang kamu ketahui tentang ${topic} (soal ke-${i})!\n\n`;
+                    }
+                }
+                document.getElementById('task-desc').value = fallbackQuestions.trim();
+                showToast('Draft soal berhasil dibuat! Silakan sesuaikan lalu terbitkan ke siswa.', '📝');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Buat Soal Otomatis dengan AI';
+            }
+        };
+
         window.editExistingTask = function(taskId) {
             const task = appState.tasks.find(t => t.id === taskId);
             if (!task) return;
